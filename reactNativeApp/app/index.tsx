@@ -149,9 +149,6 @@ const CatalogCard = ({ item }: { item: CatalogItem }) => {
       ]}
     >
       <Text style={[styles.title, { color: colors.text }]}>{item.title}</Text>
-      <Text style={[styles.meta, { color: colors.muted }]} numberOfLines={1}>
-        {item.url.replace(baseUrl, "")}
-      </Text>
     </View>
   );
 };
@@ -192,16 +189,19 @@ const parseQuickSearch = (payload: any): BookResult[] => {
 };
 
 const parseCatalog = (html: string, anchorClass: string): CatalogItem[] => {
-  const cleaned = html.replace(/\n/g, " ");
+  const cleaned = html.replace(/[\n\r]/g, " ");
+  // Match anchors with the target class and capture href regardless of attribute order
   const regex = new RegExp(
-    `<a[^>]+class="[^"]*${anchorClass}[^"]*"[^>]*href="([^"]+)"[^>]*>([^<]+)`,
-    "g"
+    `<a[^>]*?(?=[^>]*class="[^"]*${anchorClass}[^"]*")(?=[^>]*href="([^"]+)")[^>]*>(.*?)<\\/a>`,
+    "gi"
   );
   const items: CatalogItem[] = [];
   let match;
   while ((match = regex.exec(cleaned)) !== null) {
+    const rawTitle = match[2].replace(/<[^>]+>/g, "").trim();
+    if (!rawTitle) continue;
     items.push({
-      title: match[2].trim(),
+      title: rawTitle,
       url: baseUrl + match[1],
     });
   }
@@ -264,7 +264,10 @@ export default function Index() {
     try {
       const res = await fetch(`${baseUrl}/${endpoint}/`);
       const html = await res.text();
-      const anchorClass = nextMode === "genres" ? "genre2_item_name" : "author_item_name";
+      const anchorClass =
+        nextMode === "genres"
+          ? "genre2_item_name"
+          : "author_item_name"; // readers list uses the same class as authors
       setCatalog(parseCatalog(html, anchorClass));
     } catch (e) {
       setError("Не получилось загрузить список");
@@ -461,7 +464,7 @@ export default function Index() {
             />
           ))}
 
-        {mode === "genres" && genreBooks.length > 0 && (
+        {mode !== "search" && genreBooks.length > 0 && (
           <View style={{ marginTop: 8, marginBottom: 8, gap: 6 }}>
             <Text style={[styles.title, { color: colors.text }]}>
               {genrePageMeta?.title ?? activeGenre?.title ?? "Жанр"}
@@ -469,6 +472,8 @@ export default function Index() {
             {genrePageMeta?.count ? (
               <Text style={[styles.meta, { color: colors.muted }]}>{genrePageMeta.count}</Text>
             ) : null}
+            {mode === "genres" && (
+              <>
             <View style={{ flexDirection: "row", gap: 8 }}>
               {(["new", "popular", "rating"] as GenreTab[]).map((tab) => (
                 <TouchableOpacity
@@ -525,10 +530,12 @@ export default function Index() {
                 ))}
               </View>
             )}
+              </>
+            )}
           </View>
         )}
 
-        {mode === "genres" && genreBooks.length > 0
+        {mode !== "search" && genreBooks.length > 0
           ? genreBooks.map((book) => (
               <SearchCard
                 key={book.id}
