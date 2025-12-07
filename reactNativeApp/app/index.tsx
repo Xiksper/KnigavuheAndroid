@@ -29,6 +29,9 @@ type BookResult = {
 };
 
 type CatalogItem = { title: string; url: string };
+type GenrePage = { title: string; count?: string };
+type GenreTab = "new" | "popular" | "rating";
+type Period = "today" | "week" | "month" | "alltime";
 
 const baseUrl = "https://knigavuhe.org";
 
@@ -215,6 +218,11 @@ export default function Index() {
   const [books, setBooks] = useState<BookResult[]>([]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [error, setError] = useState("");
+  const [genreBooks, setGenreBooks] = useState<BookResult[]>([]);
+  const [genrePageMeta, setGenrePageMeta] = useState<GenrePage | null>(null);
+  const [activeGenre, setActiveGenre] = useState<CatalogItem | null>(null);
+  const [genreTab, setGenreTab] = useState<GenreTab>("new");
+  const [genrePeriod, setGenrePeriod] = useState<Period>("month");
 
   const callSearch = async () => {
     setMode("search");
@@ -245,6 +253,8 @@ export default function Index() {
     setError("");
     setBooks([]);
     setCatalog([]);
+    setGenreBooks([]);
+    setGenrePageMeta(null);
     const endpoint =
       nextMode === "genres"
         ? "genres"
@@ -258,6 +268,77 @@ export default function Index() {
       setCatalog(parseCatalog(html, anchorClass));
     } catch (e) {
       setError("Не получилось загрузить список");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const parseGenreBooks = (html: string): { meta: GenrePage | null; items: BookResult[] } => {
+    const cleaned = html.replace(/\n/g, " ");
+    const metaMatch = cleaned.match(
+      /<div class="page_title">.*?<h1>([^<]+)<\/h1>.*?<span class="page_title_count">([^<]*)<\/span>/
+    );
+    const meta = metaMatch
+      ? { title: metaMatch[1].trim(), count: metaMatch[2].trim() }
+      : null;
+
+    const cardRegex = /<div class="bookkitem">([\s\S]*?)<\/div>\s*<\/div>/g;
+    const items: BookResult[] = [];
+    let m;
+    while ((m = cardRegex.exec(cleaned)) !== null) {
+      const block = m[1];
+      const titleMatch = block.match(/class="bookkitem_name"[^>]*>([^<]+)</);
+      const urlMatch = block.match(/<a class="bookkitem_cover" href="([^"]+)"/);
+      const coverMatch = block.match(/<img[^>]+src="([^"]+)"[^>]*alt="([^"]*)"/);
+      const authorMatch = block.match(/bookkitem_author_label">автор<\/span>\s*<[^>]*>([^<]+)</);
+      const readerMatch = block.match(/bookkitem_meta_label">Читает<\/span>\s*(?:<span[^>]*>)?<a[^>]*>([^<]+)</);
+      const genreMatch = block.match(/bookkitem_genre">[^<]*<a[^>]*>([^<]+)</);
+
+      const title = titleMatch?.[1]?.trim() || coverMatch?.[2]?.trim() || "Аудиокнига";
+      const bookUrl = urlMatch ? `${baseUrl}${urlMatch[1]}` : "";
+      const cover = coverMatch?.[1];
+      items.push({
+        id: bookUrl || title,
+        title,
+        authors: authorMatch?.[1]?.trim() || "",
+        readers: readerMatch?.[1]?.trim() || "",
+        cover,
+        url: bookUrl,
+        likes: 0,
+        dislikes: 0,
+        genre: genreMatch?.[1]?.trim(),
+      });
+    }
+    return { meta, items };
+  };
+
+  const buildGenreUrl = (item: CatalogItem, tab: GenreTab, period: Period) => {
+    const base = item.url.replace(/\/$/, "");
+    if (tab === "new") return base + "/";
+    if (tab === "popular") return `${base}/popular/?period=${period}`;
+    return `${base}/rating/?period=${period}`;
+  };
+
+  const loadGenrePage = async (
+    item: CatalogItem,
+    tab: GenreTab = genreTab,
+    period: Period = genrePeriod
+  ) => {
+    setLoading(true);
+    setError("");
+    setGenreBooks([]);
+    setGenrePageMeta(null);
+    setActiveGenre(item);
+    setGenreTab(tab);
+    setGenrePeriod(period);
+    try {
+      const res = await fetch(buildGenreUrl(item, tab, period));
+      const html = await res.text();
+      const parsed = parseGenreBooks(html);
+      setGenrePageMeta(parsed.meta ?? { title: item.title });
+      setGenreBooks(parsed.items);
+    } catch (e) {
+      setError("Не получилось загрузить жанр");
     } finally {
       setLoading(false);
     }
@@ -350,7 +431,7 @@ export default function Index() {
           </View>
         ) : null}
 
-        {!loading && mode !== "search" && catalog.length === 0 && !error ? (
+        {!loading && mode !== "search" && catalog.length === 0 && genreBooks.length === 0 && !error ? (
           <View style={styles.empty}>
             <Ionicons name="list" size={22} color={colors.accent} />
             <Text style={[styles.subtitle, { color: colors.muted }]}>
@@ -380,8 +461,102 @@ export default function Index() {
             />
           ))}
 
+        {mode === "genres" && genreBooks.length > 0 && (
+          <View style={{ marginTop: 8, marginBottom: 8, gap: 6 }}>
+            <Text style={[styles.title, { color: colors.text }]}>
+              {genrePageMeta?.title ?? activeGenre?.title ?? "Жанр"}
+            </Text>
+            {genrePageMeta?.count ? (
+              <Text style={[styles.meta, { color: colors.muted }]}>{genrePageMeta.count}</Text>
+            ) : null}
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {(["new", "popular", "rating"] as GenreTab[]).map((tab) => (
+                <TouchableOpacity
+                  key={tab}
+                  onPress={() => activeGenre && loadGenrePage(activeGenre, tab)}
+                  style={[
+                    styles.pill,
+                    {
+                      backgroundColor: genreTab === tab ? colors.accent : colors.card,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.pillText,
+                      { color: genreTab === tab ? "#0b1521" : colors.text },
+                    ]}
+                  >
+                    {tab === "new" ? "Новинки" : tab === "popular" ? "Популярные" : "Рейтинг"}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {genreTab !== "new" && (
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                {(["today", "week", "month", "alltime"] as Period[]).map((p) => (
+                  <TouchableOpacity
+                    key={p}
+                    onPress={() => activeGenre && loadGenrePage(activeGenre, genreTab, p)}
+                    style={[
+                      styles.pillSmall,
+                      {
+                        backgroundColor: genrePeriod === p ? colors.accent : colors.card,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.pillText,
+                        { color: genrePeriod === p ? "#0b1521" : colors.text },
+                      ]}
+                    >
+                      {p === "today"
+                        ? "Сутки"
+                        : p === "week"
+                        ? "Неделя"
+                        : p === "month"
+                        ? "Месяц"
+                        : "Всё время"}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+
+        {mode === "genres" && genreBooks.length > 0
+          ? genreBooks.map((book) => (
+              <SearchCard
+                key={book.id}
+                item={book}
+                onPress={() =>
+                  router.push({
+                    pathname: "/player",
+                    params: {
+                      bookId: book.id,
+                      title: book.title,
+                      authors: book.authors,
+                      readers: book.readers,
+                      cover: book.cover ?? "",
+                      bookUrl: book.url,
+                    },
+                  })
+                }
+              />
+            ))
+          : null}
+
         {mode !== "search" &&
-          catalog.map((item, idx) => <CatalogCard key={`${item.url}-${idx}`} item={item} />)}
+          genreBooks.length === 0 &&
+          catalog.map((item, idx) => (
+            <TouchableOpacity key={`${item.url}-${idx}`} onPress={() => loadGenrePage(item)}>
+              <CatalogCard item={item} />
+            </TouchableOpacity>
+          ))}
       </ScrollView>
     </View>
   );
@@ -437,15 +612,26 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    flexWrap: "wrap",
   },
   pill: {
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 10,
     borderWidth: 1,
+    minWidth: 96,
+    alignItems: "center",
   },
   pillText: {
     fontWeight: "700",
+  },
+  pillSmall: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    minWidth: 78,
+    alignItems: "center",
   },
   scroll: { flex: 1 },
   card: {
@@ -481,6 +667,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     marginTop: 6,
+    flexWrap: "wrap",
   },
   tag: {
     paddingHorizontal: 10,
@@ -496,6 +683,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    marginLeft: "auto",
   },
   center: {
     alignItems: "center",
