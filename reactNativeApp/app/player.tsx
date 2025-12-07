@@ -103,11 +103,19 @@ export default function Player() {
   const currentTrack = tracks[currentIndex];
 
   useEffect(() => {
-    Audio.setAudioModeAsync({
-      staysActiveInBackground: true,
-      interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_DO_NOT_MIX,
-      playsInSilentModeIOS: true,
-    });
+    const applyAudioMode = async () => {
+      try {
+        await Audio.setAudioModeAsync({
+          staysActiveInBackground: true,
+          playsInSilentModeIOS: true,
+          interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_DUCK_OTHERS,
+          shouldDuckAndroid: true,
+        });
+      } catch (e) {
+        console.warn("Failed to set audio mode", e);
+      }
+    };
+    applyAudioMode();
   }, []);
 
   useEffect(() => {
