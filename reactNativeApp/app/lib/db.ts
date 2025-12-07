@@ -77,3 +77,8 @@ export const fetchHistory = async (): Promise<HistoryRow[]> => {
   );
   return rows ?? [];
 };
+
+export const deleteHistory = async (bookId: string) => {
+  const db = await dbPromise;
+  await db.runAsync("DELETE FROM history WHERE bookId = ?", bookId);
+};

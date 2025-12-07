@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -11,7 +12,7 @@ import {
 import { Image } from "expo-image";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { fetchHistory, HistoryRow, setupDatabase } from "./lib/db";
+import { deleteHistory, fetchHistory, HistoryRow, setupDatabase } from "./lib/db";
 import { useAppTheme } from "./theme";
 import { ThemeToggle } from "./components/ThemeToggle";
 
@@ -42,6 +43,27 @@ export default function History() {
       load();
     }, [load])
   );
+
+  const handleDelete = async (bookId: string) => {
+    await deleteHistory(bookId);
+    setItems((prev) => prev.filter((row) => row.bookId !== bookId));
+  };
+
+  const confirmDelete = (bookId: string) => {
+    Alert.alert(
+      "Удалить из истории?",
+      "Вы уверены, что хотите удалить эту запись?",
+      [
+        { text: "Отмена", style: "cancel" },
+        {
+          text: "Удалить",
+          style: "destructive",
+          onPress: () => handleDelete(bookId),
+        },
+      ],
+      { cancelable: true }
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -113,12 +135,28 @@ export default function History() {
                 <View style={[styles.cover, { backgroundColor: colors.surface }]} />
               )}
               <View style={styles.cardText}>
-                <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
-                  {row.title}
-                </Text>
-                <Text style={[styles.meta, { color: colors.muted }]} numberOfLines={1}>
-                  {row.authors}
-                </Text>
+                <View style={styles.cardHeaderRow}>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={[styles.cardTitle, { color: colors.text }]} numberOfLines={2}>
+                      {row.title}
+                    </Text>
+                    <Text style={[styles.meta, { color: colors.muted }]} numberOfLines={1}>
+                      {row.authors}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      confirmDelete(row.bookId);
+                    }}
+                    style={[
+                      styles.deleteBtn,
+                      { backgroundColor: colors.surface, borderColor: colors.border },
+                    ]}
+                  >
+                    <Ionicons name="trash" size={16} color={colors.muted} />
+                  </TouchableOpacity>
+                </View>
                 <Text style={[styles.meta, { color: colors.muted }]} numberOfLines={1}>
                   Читает: {row.readers || "—"}
                 </Text>
@@ -180,6 +218,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   cardText: { flex: 1, gap: 4 },
+  cardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
   cardTitle: {
     fontSize: 15,
     fontWeight: "700",
@@ -199,5 +242,13 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: "100%",
+  },
+  deleteBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
