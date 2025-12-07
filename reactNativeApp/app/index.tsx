@@ -217,6 +217,7 @@ export default function Index() {
   const [error, setError] = useState("");
 
   const callSearch = async () => {
+    setMode("search");
     if (!query.trim()) {
       setError("Введите запрос");
       return;
@@ -305,11 +306,6 @@ export default function Index() {
         </View>
 
         <View style={styles.pillsRow}>
-          <PillButton
-            label="Поиск"
-            active={mode === "search"}
-            onPress={() => setMode("search")}
-          />
           <PillButton
             label="Жанры"
             active={mode === "genres"}

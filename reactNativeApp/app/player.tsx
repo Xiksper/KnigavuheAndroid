@@ -29,6 +29,28 @@ const formatMs = (ms: number) => {
 };
 
 const extractTracks = (html: string): Track[] => {
+  // 1) Попробуем вытащить массив треков из JS-конструкции new BookPlayer(<id>, [...tracks], ...).
+  try {
+    const playerMatch = html.match(/new BookPlayer\([^,]+,\s*(\[[\s\S]*?\])/);
+    if (playerMatch?.[1]) {
+      const jsonLike = playerMatch[1]
+        .replace(/\\\//g, "/")
+        .replace(/\t/g, " ");
+      const parsed = JSON.parse(jsonLike);
+      if (Array.isArray(parsed)) {
+        return parsed.map((t: any, idx: number) => ({
+          title: typeof t?.title === "string" && t.title.trim()
+            ? t.title.trim()
+            : `Трек ${idx + 1}`,
+          url: String(t?.url ?? ""),
+        })).filter((t) => t.url.startsWith("http"));
+      }
+    }
+  } catch (e) {
+    // fallback ниже
+  }
+
+  // 2) Фолбек — простое извлечение всех mp3-ссылок.
   const cleaned = html.replace(/\\\\/g, "\\").replace(/\s+/g, " ");
   const matches = [
     ...cleaned.matchAll(/https:\/\/[^"']+audio[^"']+\.mp3[^"']*/gi),
