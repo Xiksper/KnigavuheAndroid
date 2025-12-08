@@ -1,0 +1,60 @@
+      setLoadingSound(false);
+    }
+  };
+
+  const trackLabel = useMemo(() => {
+    if (!currentTrack) return "÷‘?çó ?ç??‘?‘'‘?õç?";
+    return currentTrack.title || `÷‘?çó ${currentIndex + 1}`;
+  }, [currentTrack, currentIndex]);
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.surface }]}>
+        <Text style={[styles.title, { color: colors.text }]}>?>çç‘?</Text>
+        <ThemeToggle />
+      </View>
+
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
+        <View
+        style={[
+          styles.coverWrap,
+          { backgroundColor: colors.card, borderColor: colors.border },
+        ]}
+      >
+        {cover ? (
+          <Image source={{ uri: cover }} style={styles.cover} contentFit="cover" />
+        ) : (
+          <View style={[styles.cover, { backgroundColor: colors.surface }]} />
+        )}
+          <View style={styles.info}>
+            <Text style={[styles.bookTitle, { color: colors.text }]}>
+              {title || "?‘??ñ?ó?ñ?ø"}
+            </Text>
+            <Text style={[styles.meta, { color: colors.muted }]}>{authors}</Text>
+            <Text style={[styles.meta, { color: colors.muted }]}>
+              ñ‘'øç‘: {readers || "¢?""}
+            </Text>
+            <Text style={[styles.meta, { color: colors.muted, marginTop: 6 }]}>
+              {trackLabel}
+            </Text>
+          </View>
+        </View>
+
+        {loadingTracks && (
+          <View style={styles.center}>
+            <ActivityIndicator color={colors.accent} />
+            <Text style={{ color: colors.muted, marginTop: 6 }}>
+              ÷‘??‘? ‘'‘?çóñ ‘? knigavuhe...
+            </Text>
+          </View>
+        )}
+
+        {!loadingTracks && tracks.length === 0 && (
+          <View style={styles.center}>
+            <Ionicons name="alert-circle" size={22} color={colors.accent} />
+            <Text style={{ color: colors.muted, marginTop: 6 }}>
+              ?ç ?ø‘?>ñ ø‘??ñ? ?ø ‘?‘'‘?ø?ñ‘Åç ó?ñ?ñ.
+            </Text>
+          </View>
+        )}
+

@@ -9,9 +9,16 @@ import {
 } from "react-native";
 import Slider from "@react-native-community/slider";
 import { Image } from "expo-image";
-import { Audio } from "expo-av";
 import { useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import TrackPlayer, {
+  Capability,
+  Event,
+  State,
+  usePlaybackState,
+  useProgress,
+  useTrackPlayerEvents,
+} from "react-native-track-player";
 import { useAppTheme } from "../src/theme";
 import { ThemeToggle } from "../src/components/ThemeToggle";
 import { upsertHistory } from "../src/lib/db";
@@ -29,7 +36,6 @@ const formatMs = (ms: number) => {
 };
 
 const extractTracks = (html: string): Track[] => {
-  // 1) Попробуем вытащить массив треков из JS-конструкции new BookPlayer(<id>, [...tracks], ...).
   try {
     const playerMatch = html.match(/new BookPlayer\([^,]+,\s*(\[[\s\S]*?\])/);
     if (playerMatch?.[1]) {
@@ -38,19 +44,21 @@ const extractTracks = (html: string): Track[] => {
         .replace(/\t/g, " ");
       const parsed = JSON.parse(jsonLike);
       if (Array.isArray(parsed)) {
-        return parsed.map((t: any, idx: number) => ({
-          title: typeof t?.title === "string" && t.title.trim()
-            ? t.title.trim()
-            : `Трек ${idx + 1}`,
-          url: String(t?.url ?? ""),
-        })).filter((t) => t.url.startsWith("http"));
+        return parsed
+          .map((t: any, idx: number) => ({
+            title:
+              typeof t?.title === "string" && t.title.trim()
+                ? t.title.trim()
+                : `Трек ${idx + 1}`,
+            url: String(t?.url ?? ""),
+          }))
+          .filter((t) => t.url.startsWith("http"));
       }
     }
   } catch (e) {
-    // fallback ниже
+    // ignore parse error, fallback below
   }
 
-  // 2) Фолбек — простое извлечение всех mp3-ссылок.
   const cleaned = html.replace(/\\\\/g, "\\").replace(/\s+/g, " ");
   const matches = [
     ...cleaned.matchAll(/https:\/\/[^"']+audio[^"']+\.mp3[^"']*/gi),
@@ -67,6 +75,8 @@ const extractTracks = (html: string): Track[] => {
 
 export default function Player() {
   const { colors } = useAppTheme();
+  const playbackState = usePlaybackState();
+  const progress = useProgress(0.5);
   const params = useLocalSearchParams<{
     bookId?: string;
     title?: string;
@@ -91,31 +101,42 @@ export default function Player() {
   const [currentIndex, setCurrentIndex] = useState(
     params.startTrack ? Number(asString(params.startTrack)) : 0
   );
-  const [position, setPosition] = useState(0);
-  const [duration, setDuration] = useState(1);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [loadingTracks, setLoadingTracks] = useState(true);
   const [loadingSound, setLoadingSound] = useState(false);
+  const [playerReady, setPlayerReady] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
 
-  const soundRef = useRef<Audio.Sound | null>(null);
   const lastSavedRef = useRef<number>(0);
 
   const currentTrack = tracks[currentIndex];
 
   useEffect(() => {
-    const applyAudioMode = async () => {
+    const setup = async () => {
       try {
-        await Audio.setAudioModeAsync({
-          staysActiveInBackground: true,
-          playsInSilentModeIOS: true,
-          interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_DUCK_OTHERS,
-          shouldDuckAndroid: true,
+        await TrackPlayer.setupPlayer();
+        await TrackPlayer.updateOptions({
+          stoppingAppPausesPlayback: false,
+          capabilities: [
+            Capability.Play,
+            Capability.Pause,
+            Capability.SeekTo,
+            Capability.SkipToNext,
+            Capability.SkipToPrevious,
+          ],
+          compactCapabilities: [
+            Capability.Play,
+            Capability.Pause,
+            Capability.SkipToNext,
+            Capability.SkipToPrevious,
+          ],
+          progressUpdateEventInterval: 2,
         });
+        setPlayerReady(true);
       } catch (e) {
-        console.warn("Failed to set audio mode", e);
+        console.warn("Failed to setup player", e);
       }
     };
-    applyAudioMode();
+    setup();
   }, []);
 
   useEffect(() => {
@@ -129,7 +150,7 @@ export default function Player() {
         const html = await res.text();
         let parsed = extractTracks(html).slice(0, 80);
         if (resumeUrl && !parsed.find((t) => t.url === resumeUrl)) {
-          parsed = [{ title: "Последний трек", url: resumeUrl }, ...parsed];
+          parsed = [{ title: "Продолжение", url: resumeUrl }, ...parsed];
         }
         setTracks(parsed);
       } catch (e) {
@@ -145,46 +166,66 @@ export default function Player() {
     const startPos = params.startPosition
       ? Number(asString(params.startPosition))
       : 0;
-    if (!loadingTracks && tracks.length > 0) {
-      loadTrack(currentIndex, startPos);
+    if (!loadingTracks && tracks.length > 0 && playerReady) {
+      loadQueueAndPlay(currentIndex, startPos);
     }
-    // unload on unmount
-    return () => {
-      soundRef.current?.unloadAsync();
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadingTracks, tracks.length]);
+  }, [loadingTracks, tracks.length, playerReady]);
 
-  const loadTrack = async (index: number, startMs = 0) => {
+  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], (event) => {
+    if (event.type === Event.PlaybackActiveTrackChanged) {
+      if (typeof event.index === "number" && event.index >= 0) {
+        setCurrentIndex(event.index);
+      }
+    }
+  });
+
+  useEffect(() => {
+    const state =
+      typeof playbackState === "object"
+        ? playbackState.state
+        : playbackState;
+    setIsPlaying(state === State.Playing || state === State.Buffering);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playbackState]);
+
+  const positionMs = Math.floor((progress.position || 0) * 1000);
+  const durationMs = Math.max(
+    Math.floor((progress.duration || 0) * 1000),
+    1
+  );
+
+  useEffect(() => {
+    if (!bookId || !title || !bookUrl || !tracks[currentIndex]) return;
+    const now = Date.now();
+    if (now - lastSavedRef.current < 4000) return;
+    lastSavedRef.current = now;
+    persistHistory(positionMs, durationMs, currentIndex);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [positionMs, durationMs, currentIndex]);
+
+  const loadQueueAndPlay = async (index: number, startMs = 0) => {
     if (!tracks[index]) return;
     setLoadingSound(true);
     try {
-      if (soundRef.current) {
-        await soundRef.current.unloadAsync();
-      }
-      const sound = new Audio.Sound();
-      await sound.loadAsync(
-        { uri: tracks[index].url },
-        { shouldPlay: true, positionMillis: startMs }
+      await TrackPlayer.reset();
+      await TrackPlayer.add(
+        tracks.map((t, idx) => ({
+          id: `${bookId || "track"}-${idx}`,
+          url: t.url,
+          title: t.title,
+          artist: readers || authors || "Knigavuhe",
+          artwork: cover || undefined,
+        }))
       );
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if (!status.isLoaded) return;
-        setPosition(status.positionMillis ?? 0);
-        setDuration(status.durationMillis ?? 1);
-        setIsPlaying(status.isPlaying);
-
-        if (status.didJustFinish) {
-          handleNext();
-        }
-
-        const now = Date.now();
-        if (now - lastSavedRef.current > 4000) {
-          lastSavedRef.current = now;
-          persistHistory(status.positionMillis ?? 0, status.durationMillis ?? 0, index);
-        }
-      });
-      soundRef.current = sound;
+      await TrackPlayer.skip(index);
+      if (startMs > 0) {
+        await TrackPlayer.seekTo(startMs / 1000);
+      }
+      await TrackPlayer.play();
       setCurrentIndex(index);
+    } catch (e) {
+      console.warn("Failed to load track", e);
     } finally {
       setLoadingSound(false);
     }
@@ -202,50 +243,63 @@ export default function Player() {
       audioUrl: tracks[index].url,
       trackIndex: index,
       position: pos,
-      duration: dur || duration,
+      duration: dur || durationMs,
     });
   };
 
   const togglePlay = async () => {
-    if (!soundRef.current) return;
-    const status = await soundRef.current.getStatusAsync();
-    if (!status.isLoaded) return;
-    if (status.isPlaying) {
-      await soundRef.current.pauseAsync();
+    const state =
+      typeof playbackState === "object"
+        ? playbackState.state
+        : playbackState;
+    if (state === State.Playing || state === State.Buffering) {
+      await TrackPlayer.pause();
     } else {
-      await soundRef.current.playAsync();
+      await TrackPlayer.play();
     }
   };
 
   const handleSeek = async (val: number) => {
-    if (!soundRef.current) return;
-    await soundRef.current.setPositionAsync(val);
+    await TrackPlayer.seekTo(val / 1000);
   };
 
   const handleSkip = async (deltaMs: number) => {
-    if (!soundRef.current) return;
-    const status = await soundRef.current.getStatusAsync();
-    if (!status.isLoaded) return;
-    const nextPos = Math.max(0, Math.min((status.durationMillis ?? 0) - 500, (status.positionMillis ?? 0) + deltaMs));
-    await soundRef.current.setPositionAsync(nextPos);
+    const nextPos = Math.max(0, Math.min(durationMs - 500, positionMs + deltaMs));
+    await TrackPlayer.seekTo(nextPos / 1000);
   };
 
-  const handleNext = () => {
-    const next = currentIndex + 1;
-    if (next < tracks.length) {
-      loadTrack(next, 0);
+  const handleNext = async () => {
+    try {
+      await TrackPlayer.skipToNext();
+    } catch {
+      // no next track
     }
   };
 
-  const handlePrev = () => {
-    const prev = currentIndex - 1;
-    if (prev >= 0) {
-      loadTrack(prev, 0);
+  const handlePrev = async () => {
+    try {
+      await TrackPlayer.skipToPrevious();
+    } catch {
+      await TrackPlayer.seekTo(0);
+    }
+  };
+
+  const handleSelectTrack = async (idx: number) => {
+    if (!tracks[idx]) return;
+    setLoadingSound(true);
+    try {
+      await TrackPlayer.skip(idx);
+      await TrackPlayer.play();
+      setCurrentIndex(idx);
+    } catch (e) {
+      console.warn("Failed to change track", e);
+    } finally {
+      setLoadingSound(false);
     }
   };
 
   const trackLabel = useMemo(() => {
-    if (!currentTrack) return "Трек недоступен";
+    if (!currentTrack) return "Трек не выбран";
     return currentTrack.title || `Трек ${currentIndex + 1}`;
   }, [currentTrack, currentIndex]);
 
@@ -258,23 +312,23 @@ export default function Player() {
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
         <View
-        style={[
-          styles.coverWrap,
-          { backgroundColor: colors.card, borderColor: colors.border },
-        ]}
-      >
-        {cover ? (
-          <Image source={{ uri: cover }} style={styles.cover} contentFit="cover" />
-        ) : (
-          <View style={[styles.cover, { backgroundColor: colors.surface }]} />
-        )}
+          style={[
+            styles.coverWrap,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          {cover ? (
+            <Image source={{ uri: cover }} style={styles.cover} contentFit="cover" />
+          ) : (
+            <View style={[styles.cover, { backgroundColor: colors.surface }]} />
+          )}
           <View style={styles.info}>
             <Text style={[styles.bookTitle, { color: colors.text }]}>
-              {title || "Аудиокнига"}
+              {title || "Неизвестная книга"}
             </Text>
             <Text style={[styles.meta, { color: colors.muted }]}>{authors}</Text>
             <Text style={[styles.meta, { color: colors.muted }]}>
-              Читает: {readers || "—"}
+              Читает: {readers || "Неизвестно"}
             </Text>
             <Text style={[styles.meta, { color: colors.muted, marginTop: 6 }]}>
               {trackLabel}
@@ -286,7 +340,7 @@ export default function Player() {
           <View style={styles.center}>
             <ActivityIndicator color={colors.accent} />
             <Text style={{ color: colors.muted, marginTop: 6 }}>
-              Тяну треки с knigavuhe...
+              Ищем треки на knigavuhe...
             </Text>
           </View>
         )}
@@ -295,7 +349,7 @@ export default function Player() {
           <View style={styles.center}>
             <Ionicons name="alert-circle" size={22} color={colors.accent} />
             <Text style={{ color: colors.muted, marginTop: 6 }}>
-              Не нашли аудио на странице книги.
+              Не удалось найти аудио для этой книги.
             </Text>
           </View>
         )}
@@ -304,17 +358,21 @@ export default function Player() {
           <>
             <View style={styles.sliderRow}>
               <Slider
-                value={position}
+                value={positionMs}
                 minimumValue={0}
-                maximumValue={duration || 1}
+                maximumValue={durationMs || 1}
                 minimumTrackTintColor={colors.accent}
                 maximumTrackTintColor={colors.border}
                 thumbTintColor={colors.accent}
                 onSlidingComplete={handleSeek}
               />
               <View style={styles.sliderLabels}>
-                <Text style={{ color: colors.muted }}>{formatMs(position)}</Text>
-                <Text style={{ color: colors.muted }}>{formatMs(duration)}</Text>
+                <Text style={{ color: colors.muted }}>
+                  {formatMs(positionMs)}
+                </Text>
+                <Text style={{ color: colors.muted }}>
+                  {formatMs(durationMs)}
+                </Text>
               </View>
             </View>
 
@@ -386,11 +444,13 @@ export default function Player() {
                       style={[
                         styles.trackBadge,
                         {
-                          backgroundColor: active ? `${colors.accent}22` : colors.surface,
+                          backgroundColor: active
+                            ? `${colors.accent}22`
+                            : colors.surface,
                           borderColor: active ? colors.accent : colors.border,
                         },
                       ]}
-                      onPress={() => loadTrack(idx, 0)}
+                      onPress={() => handleSelectTrack(idx)}
                     >
                       <Text
                         style={{
