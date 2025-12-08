@@ -7,6 +7,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Linking,
 } from "react-native";
 import { Image } from "expo-image";
   import { Ionicons } from "@expo/vector-icons";
@@ -720,8 +721,9 @@ export default function Index() {
             </View>
 
             {people.map((p) => (
-              <View
+              <TouchableOpacity
                 key={p.url}
+                onPress={() => Linking.openURL(p.url).catch(() => {})}
                 style={[
                   styles.catalogItem,
                   { backgroundColor: colors.card, borderColor: colors.border },
@@ -731,7 +733,7 @@ export default function Index() {
                 {p.count ? (
                   <Text style={[styles.meta, { color: colors.muted }]}>{p.count}</Text>
                 ) : null}
-              </View>
+              </TouchableOpacity>
             ))}
 
             {peoplePages > 1 && (

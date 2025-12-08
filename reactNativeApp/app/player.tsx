@@ -140,6 +140,19 @@ export default function Player() {
     setup();
   }, []);
 
+  // reset when book changes to avoid playing previous queue
+  useEffect(() => {
+    setTracks([]);
+    setCurrentIndex(params.startTrack ? Number(asString(params.startTrack)) : 0);
+    setTrackDurations([]);
+    setLoadingTracks(true);
+    TrackPlayer.reset().catch(() => {});
+    return () => {
+      TrackPlayer.reset().catch(() => {});
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookId]);
+
   useEffect(() => {
     const load = async () => {
       if (!bookUrl) {
@@ -161,7 +174,7 @@ export default function Player() {
       }
     };
     load();
-  }, [params.bookUrl, params.resumeUrl]);
+  }, [params.bookUrl, params.resumeUrl, bookId]);
 
   useEffect(() => {
     const startPos = params.startPosition
@@ -266,6 +279,16 @@ export default function Player() {
   };
 
   const togglePlay = async () => {
+    // ensure queue is ready
+    try {
+      const queue = await TrackPlayer.getQueue();
+      if ((!queue || queue.length === 0) && tracks.length > 0) {
+        await loadQueueAndPlay(currentIndex, positionMs);
+        return;
+      }
+    } catch {
+      // ignore
+    }
     const state =
       typeof playbackState === "object"
         ? playbackState.state

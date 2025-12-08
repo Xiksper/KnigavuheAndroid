@@ -33,7 +33,7 @@ const lightTheme = {
   card: "#f0f0f3",
   text: "#1f1f1f",
   muted: "#4a4a4a",
-  accent: "#0066cc",
+  accent: "#ff8c2f",
   border: "#dcdcdc",
   shadow: "#0f172a15",
 };
