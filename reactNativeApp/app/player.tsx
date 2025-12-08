@@ -111,10 +111,33 @@ export default function Player() {
 
   const currentTrack = tracks[currentIndex];
 
+  // ИНИЦИАЛИЗАЦИЯ ПЛЕЕРА (с обработкой "player_already_initialized")
   useEffect(() => {
+    let isMounted = true;
+
     const setup = async () => {
       try {
         await TrackPlayer.setupPlayer();
+      } catch (e: any) {
+        // Если плеер уже инициализирован (частый кейс после перезапуска JS),
+        // воспринимаем это как успех и продолжаем.
+        const msg = String(e?.message ?? "");
+        const code = (e as any)?.code;
+
+        if (
+          code === "player_already_initialized" ||
+          msg.toLowerCase().includes("already") // на всякий случай по тексту
+        ) {
+          console.log("TrackPlayer already initialized, reusing instance");
+        } else {
+          console.warn("Failed to setup player", e);
+          return; // реальный фейл, дальше не идём
+        }
+      }
+
+      if (!isMounted) return;
+
+      try {
         await TrackPlayer.updateOptions({
           stoppingAppPausesPlayback: false,
           capabilities: [
@@ -132,18 +155,28 @@ export default function Player() {
           ],
           progressUpdateEventInterval: 2,
         });
-        setPlayerReady(true);
       } catch (e) {
-        console.warn("Failed to setup player", e);
+        console.warn("Failed to update player options", e);
+      }
+
+      if (isMounted) {
+        setPlayerReady(true);
       }
     };
+
     setup();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // reset when book changes to avoid playing previous queue
   useEffect(() => {
     setTracks([]);
-    setCurrentIndex(params.startTrack ? Number(asString(params.startTrack)) : 0);
+    setCurrentIndex(
+      params.startTrack ? Number(asString(params.startTrack)) : 0
+    );
     setTrackDurations([]);
     setLoadingTracks(true);
     TrackPlayer.reset().catch(() => {});
@@ -180,6 +213,7 @@ export default function Player() {
     const startPos = params.startPosition
       ? Number(asString(params.startPosition))
       : 0;
+
     if (!loadingTracks && tracks.length > 0 && playerReady) {
       loadQueueAndPlay(currentIndex, startPos);
     }
@@ -219,7 +253,7 @@ export default function Player() {
   }, [positionMs, durationMs, currentIndex]);
 
   const loadQueueAndPlay = async (index: number, startMs = 0) => {
-    if (!tracks[index]) return;
+    if (!tracks[index] || !playerReady) return;
     setLoadingSound(true);
     try {
       await TrackPlayer.reset();
@@ -248,7 +282,10 @@ export default function Player() {
 
   const persistHistory = async (pos: number, dur: number, index: number) => {
     if (!bookId || !title || !bookUrl || !tracks[index]) return;
-    const knownTotalDur = trackDurations.reduce((acc, v) => acc + (v || 0), 0);
+    const knownTotalDur = trackDurations.reduce(
+      (acc, v) => acc + (v || 0),
+      0
+    );
     const estimatedTotalDur =
       knownTotalDur > 0
         ? knownTotalDur
@@ -279,6 +316,11 @@ export default function Player() {
   };
 
   const togglePlay = async () => {
+    if (!playerReady) {
+      console.warn("Player is not ready yet");
+      return;
+    }
+
     // ensure queue is ready
     try {
       const queue = await TrackPlayer.getQueue();
@@ -286,13 +328,15 @@ export default function Player() {
         await loadQueueAndPlay(currentIndex, positionMs);
         return;
       }
-    } catch {
-      // ignore
+    } catch (e) {
+      console.warn("Failed to get queue", e);
     }
+
     const state =
       typeof playbackState === "object"
         ? playbackState.state
         : playbackState;
+
     if (state === State.Playing || state === State.Buffering) {
       await TrackPlayer.pause();
     } else {
@@ -305,7 +349,10 @@ export default function Player() {
   };
 
   const handleSkip = async (deltaMs: number) => {
-    const nextPos = Math.max(0, Math.min(durationMs - 500, positionMs + deltaMs));
+    const nextPos = Math.max(
+      0,
+      Math.min(durationMs - 500, positionMs + deltaMs)
+    );
     await TrackPlayer.seekTo(nextPos / 1000);
   };
 
@@ -326,7 +373,7 @@ export default function Player() {
   };
 
   const handleSelectTrack = async (idx: number) => {
-    if (!tracks[idx]) return;
+    if (!tracks[idx] || !playerReady) return;
     setLoadingSound(true);
     try {
       await TrackPlayer.skip(idx);
@@ -359,7 +406,10 @@ export default function Player() {
     }
   };
 
-  const knownTotalDur = trackDurations.reduce((acc, v) => acc + (v || 0), 0);
+  const knownTotalDur = trackDurations.reduce(
+    (acc, v) => acc + (v || 0),
+    0
+  );
   const estTotalDur =
     knownTotalDur > 0
       ? knownTotalDur
@@ -391,19 +441,32 @@ export default function Player() {
           ]}
         >
           {cover ? (
-            <Image source={{ uri: cover }} style={styles.cover} contentFit="cover" />
+            <Image
+              source={{ uri: cover }}
+              style={styles.cover}
+              contentFit="cover"
+            />
           ) : (
-            <View style={[styles.cover, { backgroundColor: colors.surface }]} />
+            <View
+              style={[styles.cover, { backgroundColor: colors.surface }]}
+            />
           )}
           <View style={styles.info}>
             <Text style={[styles.bookTitle, { color: colors.text }]}>
               {title || "Неизвестная книга"}
             </Text>
-            <Text style={[styles.meta, { color: colors.muted }]}>{authors}</Text>
+            <Text style={[styles.meta, { color: colors.muted }]}>
+              {authors}
+            </Text>
             <Text style={[styles.meta, { color: colors.muted }]}>
               Читает: {readers || "Неизвестно"}
             </Text>
-            <Text style={[styles.meta, { color: colors.muted, marginTop: 6 }]}>
+            <Text
+              style={[
+                styles.meta,
+                { color: colors.muted, marginTop: 6 },
+              ]}
+            >
               {trackLabel}
             </Text>
           </View>
@@ -420,7 +483,11 @@ export default function Player() {
 
         {!loadingTracks && tracks.length === 0 && (
           <View style={styles.center}>
-            <Ionicons name="alert-circle" size={22} color={colors.accent} />
+            <Ionicons
+              name="alert-circle"
+              size={22}
+              color={colors.accent}
+            />
             <Text style={{ color: colors.muted, marginTop: 6 }}>
               Не удалось найти аудио для этой книги.
             </Text>
@@ -448,10 +515,21 @@ export default function Player() {
                 </Text>
               </View>
               <View style={styles.sliderLabels}>
-                <Text style={{ color: colors.text, fontWeight: "700" }}>
-                  Всего: {formatMs(estElapsed)} / {formatMs(estTotalDur)}
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontWeight: "700",
+                  }}
+                >
+                  Всего: {formatMs(estElapsed)} /{" "}
+                  {formatMs(estTotalDur)}
                 </Text>
-                <Text style={{ color: colors.text, fontWeight: "700" }}>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontWeight: "700",
+                  }}
+                >
                   {Math.round(overallPercent)}%
                 </Text>
               </View>
@@ -459,20 +537,34 @@ export default function Player() {
 
             <View style={styles.controls}>
               <TouchableOpacity
-                style={[styles.ctrlBtn, { backgroundColor: colors.card }]}
+                style={[
+                  styles.ctrlBtn,
+                  { backgroundColor: colors.card },
+                ]}
                 onPress={() => handleSkip(-15000)}
               >
-                <Ionicons name="play-back" size={22} color={colors.text} />
+                <Ionicons
+                  name="play-back"
+                  size={22}
+                  color={colors.text}
+                />
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.ctrlBtn, { backgroundColor: colors.card }]}
+                style={[
+                  styles.ctrlBtn,
+                  { backgroundColor: colors.card },
+                ]}
                 onPress={handlePrev}
                 disabled={currentIndex === 0}
               >
                 <Ionicons
                   name="play-skip-back"
                   size={22}
-                  color={currentIndex === 0 ? colors.border : colors.text}
+                  color={
+                    currentIndex === 0
+                      ? colors.border
+                      : colors.text
+                  }
                 />
               </TouchableOpacity>
               <TouchableOpacity
@@ -490,7 +582,10 @@ export default function Player() {
                 />
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.ctrlBtn, { backgroundColor: colors.card }]}
+                style={[
+                  styles.ctrlBtn,
+                  { backgroundColor: colors.card },
+                ]}
                 onPress={handleNext}
                 disabled={currentIndex >= tracks.length - 1}
               >
@@ -505,18 +600,33 @@ export default function Player() {
                 />
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.ctrlBtn, { backgroundColor: colors.card }]}
+                style={[
+                  styles.ctrlBtn,
+                  { backgroundColor: colors.card },
+                ]}
                 onPress={() => handleSkip(15000)}
               >
-                <Ionicons name="play-forward" size={22} color={colors.text} />
+                <Ionicons
+                  name="play-forward"
+                  size={22}
+                  color={colors.text}
+                />
               </TouchableOpacity>
             </View>
 
             <View style={styles.tracks}>
-              <Text style={[styles.meta, { color: colors.text, marginBottom: 8 }]}>
+              <Text
+                style={[
+                  styles.meta,
+                  { color: colors.text, marginBottom: 8 },
+                ]}
+              >
                 Треки книги
               </Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+              >
                 {tracks.map((t, idx) => {
                   const active = idx === currentIndex;
                   return (
@@ -528,14 +638,18 @@ export default function Player() {
                           backgroundColor: active
                             ? `${colors.accent}22`
                             : colors.surface,
-                          borderColor: active ? colors.accent : colors.border,
+                          borderColor: active
+                            ? colors.accent
+                            : colors.border,
                         },
                       ]}
                       onPress={() => handleSelectTrack(idx)}
                     >
                       <Text
                         style={{
-                          color: active ? colors.accent : colors.text,
+                          color: active
+                            ? colors.accent
+                            : colors.text,
                           fontWeight: "600",
                         }}
                       >
