@@ -12,9 +12,9 @@ import { Image } from "expo-image";
 import { Audio } from "expo-av";
 import { useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useAppTheme } from "./theme";
-import { ThemeToggle } from "./components/ThemeToggle";
-import { upsertHistory } from "./lib/db";
+import { useAppTheme } from "../src/theme";
+import { ThemeToggle } from "../src/components/ThemeToggle";
+import { upsertHistory } from "../src/lib/db";
 
 type Track = { title: string; url: string };
 

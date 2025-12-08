@@ -2,8 +2,8 @@ import { useEffect } from "react";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
-import { ThemeProvider, useAppTheme } from "./theme";
-import { setupDatabase } from "./lib/db";
+import { ThemeProvider, useAppTheme } from "../src/theme";
+import { setupDatabase } from "../src/lib/db";
 
 const TabsLayout = () => {
   const { colors, mode } = useAppTheme();

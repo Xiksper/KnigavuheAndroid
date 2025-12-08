@@ -11,8 +11,8 @@ import {
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { ThemeToggle } from "./components/ThemeToggle";
-import { useAppTheme } from "./theme";
+import { ThemeToggle } from "../src/components/ThemeToggle";
+import { useAppTheme } from "../src/theme";
 
 type Mode = "search" | "genres" | "authors" | "readers";
 

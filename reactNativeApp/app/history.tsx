@@ -12,9 +12,14 @@ import {
 import { Image } from "expo-image";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { deleteHistory, fetchHistory, HistoryRow, setupDatabase } from "./lib/db";
-import { useAppTheme } from "./theme";
-import { ThemeToggle } from "./components/ThemeToggle";
+import {
+  deleteHistory,
+  fetchHistory,
+  HistoryRow,
+  setupDatabase,
+} from "../src/lib/db";
+import { useAppTheme } from "../src/theme";
+import { ThemeToggle } from "../src/components/ThemeToggle";
 
 const formatTime = (ms: number) => {
   const total = Math.max(0, Math.floor(ms / 1000));
