@@ -103,9 +103,10 @@ export default function History() {
         )}
 
         {items.map((row) => {
-          const progress = row.duration
-            ? Math.min(1, row.position / row.duration)
-            : 0;
+          const totalDur = row.totalDuration || row.duration || 1;
+          const totalPos = row.totalPosition || row.position || 0;
+          const progress = Math.min(1, totalPos / totalDur);
+          const percentLabel = `${Math.round(progress * 100)}%`;
           return (
             <TouchableOpacity
               key={row.id}
@@ -180,7 +181,7 @@ export default function History() {
                     />
                   </View>
                   <Text style={[styles.meta, { color: colors.text }]}>
-                    {formatTime(row.position)} / {formatTime(row.duration)}
+                    {percentLabel} · {formatTime(totalPos)} / {formatTime(totalDur)}
                   </Text>
                 </View>
               </View>

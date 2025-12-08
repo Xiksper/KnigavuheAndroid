@@ -105,6 +105,7 @@ export default function Player() {
   const [loadingSound, setLoadingSound] = useState(false);
   const [playerReady, setPlayerReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [trackDurations, setTrackDurations] = useState<number[]>([]);
 
   const lastSavedRef = useRef<number>(0);
 
@@ -218,6 +219,7 @@ export default function Player() {
           artwork: cover || undefined,
         }))
       );
+      await refreshDurations();
       await TrackPlayer.skip(index);
       if (startMs > 0) {
         await TrackPlayer.seekTo(startMs / 1000);
@@ -233,6 +235,20 @@ export default function Player() {
 
   const persistHistory = async (pos: number, dur: number, index: number) => {
     if (!bookId || !title || !bookUrl || !tracks[index]) return;
+    const knownTotalDur = trackDurations.reduce((acc, v) => acc + (v || 0), 0);
+    const estimatedTotalDur =
+      knownTotalDur > 0
+        ? knownTotalDur
+        : tracks.length > 0
+        ? (dur || durationMs) * tracks.length
+        : dur || durationMs;
+    const knownElapsed = trackDurations
+      .slice(0, index)
+      .reduce((acc, v) => acc + (v || 0), 0);
+    const estimatedElapsed =
+      knownTotalDur > 0
+        ? knownElapsed + pos
+        : index * (dur || durationMs) + pos;
     await upsertHistory({
       bookId,
       title,
@@ -244,6 +260,8 @@ export default function Player() {
       trackIndex: index,
       position: pos,
       duration: dur || durationMs,
+      totalPosition: estimatedElapsed,
+      totalDuration: estimatedTotalDur,
     });
   };
 
@@ -289,6 +307,7 @@ export default function Player() {
     setLoadingSound(true);
     try {
       await TrackPlayer.skip(idx);
+      await refreshDurations();
       await TrackPlayer.play();
       setCurrentIndex(idx);
     } catch (e) {
@@ -302,6 +321,37 @@ export default function Player() {
     if (!currentTrack) return "Трек не выбран";
     return currentTrack.title || `Трек ${currentIndex + 1}`;
   }, [currentTrack, currentIndex]);
+
+  const refreshDurations = async () => {
+    try {
+      const queue = await TrackPlayer.getQueue();
+      setTrackDurations(
+        queue.map((t) => {
+          const d = (t as any)?.duration;
+          return typeof d === "number" && d > 0 ? Math.floor(d * 1000) : 0;
+        })
+      );
+    } catch {
+      // ignore
+    }
+  };
+
+  const knownTotalDur = trackDurations.reduce((acc, v) => acc + (v || 0), 0);
+  const estTotalDur =
+    knownTotalDur > 0
+      ? knownTotalDur
+      : tracks.length > 0
+      ? (durationMs || 1) * tracks.length
+      : durationMs;
+  const elapsedKnown = trackDurations
+    .slice(0, currentIndex)
+    .reduce((acc, v) => acc + (v || 0), 0);
+  const estElapsed =
+    knownTotalDur > 0
+      ? elapsedKnown + positionMs
+      : currentIndex * (durationMs || 1) + positionMs;
+  const overallPercent =
+    estTotalDur > 0 ? Math.min(100, (estElapsed / estTotalDur) * 100) : 0;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -372,6 +422,14 @@ export default function Player() {
                 </Text>
                 <Text style={{ color: colors.muted }}>
                   {formatMs(durationMs)}
+                </Text>
+              </View>
+              <View style={styles.sliderLabels}>
+                <Text style={{ color: colors.text, fontWeight: "700" }}>
+                  Всего: {formatMs(estElapsed)} / {formatMs(estTotalDur)}
+                </Text>
+                <Text style={{ color: colors.text, fontWeight: "700" }}>
+                  {Math.round(overallPercent)}%
                 </Text>
               </View>
             </View>

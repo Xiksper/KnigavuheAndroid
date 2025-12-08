@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -9,7 +9,7 @@ import {
   View,
 } from "react-native";
 import { Image } from "expo-image";
-import { Ionicons } from "@expo/vector-icons";
+  import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { ThemeToggle } from "../src/components/ThemeToggle";
 import { useAppTheme } from "../src/theme";
@@ -32,8 +32,15 @@ type CatalogItem = { title: string; url: string };
 type GenrePage = { title: string; count?: string };
 type GenreTab = "new" | "popular" | "rating";
 type Period = "today" | "week" | "month" | "alltime";
+type PersonItem = { name: string; url: string; count?: string };
 
 const baseUrl = "https://knigavuhe.org";
+
+const letterGroups = {
+  ru: ["А","Б","В","Г","Д","Е","Ж","З","И","Й","К","Л","М","Н","О","П","Р","С","Т","У","Ф","Х","Ц","Ч","Ш","Щ","Ы","Э","Ю","Я"],
+  en: ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"],
+  other: ["","(",".","0","«","圣","夜","奥","快","点","跃","銀","아","유","은","한","﻿"],
+};
 
 const PillButton = ({
   label,
@@ -223,6 +230,11 @@ export default function Index() {
   const [activeGenre, setActiveGenre] = useState<CatalogItem | null>(null);
   const [genreTab, setGenreTab] = useState<GenreTab>("new");
   const [genrePeriod, setGenrePeriod] = useState<Period>("month");
+  const [people, setPeople] = useState<PersonItem[]>([]);
+  const [peoplePage, setPeoplePage] = useState(1);
+  const [peoplePages, setPeoplePages] = useState(1);
+  const [peopleLetter, setPeopleLetter] = useState<string | null>(null);
+  const [peopleQuery, setPeopleQuery] = useState("");
 
   const callSearch = async () => {
     setMode("search");
@@ -276,6 +288,73 @@ export default function Index() {
     }
   };
 
+  const parsePeople = (html: string) => {
+    const cleaned = html.replace(/\n/g, " ");
+    const items: PersonItem[] = [];
+    const itemRegex =
+      /<div class="common_list_item author_item">[\s\S]*?<span class="author_item_books_count">([^<]*)<\/span>[\s\S]*?<a[^>]*href="([^"]+)"[^>]*class="author_item_name[^"]*">[\s\S]*?<span>([^<]+)<\/span>/g;
+    let m;
+    while ((m = itemRegex.exec(cleaned)) !== null) {
+      items.push({
+        name: m[3].trim(),
+        url: baseUrl + m[2],
+        count: m[1].trim(),
+      });
+    }
+    const pageMatch = cleaned.match(/PageNav\({"page":(\d+),"pages":(\d+)/);
+    const page = pageMatch ? Number(pageMatch[1]) : 1;
+    const pages = pageMatch ? Number(pageMatch[2]) : 1;
+    return { items, page, pages };
+  };
+
+  const buildPeopleUrl = (
+    nextMode: "authors" | "readers",
+    letter?: string | null,
+    page = 1,
+    q?: string
+  ) => {
+    const endpoint = nextMode === "authors" ? "authors" : "readers";
+    if (q && q.trim()) {
+      return `${baseUrl}/search/${endpoint}/?q=${encodeURIComponent(
+        q.trim()
+      )}&page=${page}&button=`;
+    }
+    if (letter) {
+      return `${baseUrl}/${endpoint}/letter/${encodeURIComponent(letter)}/?page=${page}`;
+    }
+    return `${baseUrl}/${endpoint}/${page > 1 ? `${page}/` : ""}`;
+  };
+
+  const loadPeople = async (
+    nextMode: "authors" | "readers",
+    opts?: { letter?: string | null; page?: number; q?: string }
+  ) => {
+    const letter = opts?.letter ?? peopleLetter;
+    const page = opts?.page ?? 1;
+    const q = opts?.q ?? peopleQuery;
+    setMode(nextMode);
+    setLoading(true);
+    setError("");
+    setBooks([]);
+    setCatalog([]);
+    setGenreBooks([]);
+    setGenrePageMeta(null);
+    try {
+      const res = await fetch(buildPeopleUrl(nextMode, letter, page, q));
+      const html = await res.text();
+      const parsed = parsePeople(html);
+      setPeople(parsed.items);
+      setPeoplePage(parsed.page);
+      setPeoplePages(parsed.pages);
+      setPeopleLetter(letter ?? null);
+      setPeopleQuery(q ?? "");
+    } catch (e) {
+      setError("Не удалось загрузить список.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const parseGenreBooks = (html: string): { meta: GenrePage | null; items: BookResult[] } => {
     const cleaned = html.replace(/\n/g, " ");
     const metaMatch = cleaned.match(
@@ -293,8 +372,8 @@ export default function Index() {
       const titleMatch = block.match(/class="bookkitem_name"[^>]*>([^<]+)</);
       const urlMatch = block.match(/<a class="bookkitem_cover" href="([^"]+)"/);
       const coverMatch = block.match(/<img[^>]+src="([^"]+)"[^>]*alt="([^"]*)"/);
-      const authorMatch = block.match(/bookkitem_author_label">автор<\/span>\s*<[^>]*>([^<]+)</);
-      const readerMatch = block.match(/bookkitem_meta_label">Читает<\/span>\s*(?:<span[^>]*>)?<a[^>]*>([^<]+)</);
+      const authorMatch = block.match(/bookkitem_author_label">автор<\/span>\s*<[^>]*>([^<]+)</i);
+      const readerMatch = block.match(/bookkitem_meta_label">Читает<\/span>\s*(?:<span[^>]*>)?<a[^>]*>([^<]+)</i);
       const genreMatch = block.match(/bookkitem_genre">[^<]*<a[^>]*>([^<]+)</);
 
       const title = titleMatch?.[1]?.trim() || coverMatch?.[2]?.trim() || "Аудиокнига";
@@ -398,12 +477,12 @@ export default function Index() {
           <PillButton
             label="Авторы"
             active={mode === "authors"}
-            onPress={() => loadCatalog("authors")}
+            onPress={() => loadPeople("authors", { page: 1, letter: null, q: "" })}
           />
           <PillButton
             label="Исполнители"
             active={mode === "readers"}
-            onPress={() => loadCatalog("readers")}
+            onPress={() => loadPeople("readers", { page: 1, letter: null, q: "" })}
           />
         </View>
       </View>
@@ -434,7 +513,12 @@ export default function Index() {
           </View>
         ) : null}
 
-        {!loading && mode !== "search" && catalog.length === 0 && genreBooks.length === 0 && !error ? (
+        {!loading &&
+          mode !== "search" &&
+          catalog.length === 0 &&
+          genreBooks.length === 0 &&
+          people.length === 0 &&
+          !error ? (
           <View style={styles.empty}>
             <Ionicons name="list" size={22} color={colors.accent} />
             <Text style={[styles.subtitle, { color: colors.muted }]}>
@@ -557,13 +641,148 @@ export default function Index() {
             ))
           : null}
 
-        {mode !== "search" &&
-          genreBooks.length === 0 &&
-          catalog.map((item, idx) => (
-            <TouchableOpacity key={`${item.url}-${idx}`} onPress={() => loadGenrePage(item)}>
-              <CatalogCard item={item} />
-            </TouchableOpacity>
-          ))}
+        {mode !== "search" && genreBooks.length === 0 && mode === "genres"
+          ? catalog.map((item, idx) => (
+              <TouchableOpacity key={`${item.url}-${idx}`} onPress={() => loadGenrePage(item)}>
+                <CatalogCard item={item} />
+              </TouchableOpacity>
+            ))
+          : null}
+
+        {mode !== "search" && genreBooks.length === 0 && mode !== "genres" ? (
+          <View style={{ gap: 12, marginTop: 12 }}>
+            <View style={[styles.searchRow, { borderColor: colors.border }]}>
+              <Ionicons name="search" size={18} color={colors.muted} />
+              <TextInput
+                placeholder={
+                  mode === "authors" ? "Поиск по авторам" : "Поиск по исполнителям"
+                }
+                placeholderTextColor={colors.muted}
+                style={[styles.input, { color: colors.text }]}
+                value={peopleQuery}
+                onChangeText={(v) => setPeopleQuery(v)}
+                onSubmitEditing={() =>
+                  loadPeople(mode as "authors" | "readers", { q: peopleQuery, page: 1 })
+                }
+              />
+              <TouchableOpacity
+                onPress={() =>
+                  loadPeople(mode as "authors" | "readers", { q: peopleQuery, page: 1 })
+                }
+                style={[styles.searchBtn, { backgroundColor: colors.accent }]}
+              >
+                <Ionicons name="arrow-forward" size={18} color="#0b1521" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ gap: 6 }}>
+              <Text style={[styles.subtitle, { color: colors.text }]}>По буквам</Text>
+              {(["ru", "en", "other"] as const).map((group) => (
+                <ScrollView
+                  key={group}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 8 }}
+                >
+                  {letterGroups[group].map((letter) => {
+                    const active = peopleLetter === letter;
+                    return (
+                      <TouchableOpacity
+                        key={letter}
+                        style={[
+                          styles.letterChip,
+                          {
+                            backgroundColor: active ? colors.accent : colors.card,
+                            borderColor: colors.border,
+                          },
+                        ]}
+                        onPress={() =>
+                          loadPeople(mode as "authors" | "readers", {
+                            letter,
+                            page: 1,
+                            q: "",
+                          })
+                        }
+                      >
+                        <Text
+                          style={{
+                            color: active ? "#0b1521" : colors.text,
+                            fontWeight: "700",
+                          }}
+                        >
+                          {letter}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              ))}
+            </View>
+
+            {people.map((p) => (
+              <View
+                key={p.url}
+                style={[
+                  styles.catalogItem,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                ]}
+              >
+                <Text style={[styles.title, { color: colors.text }]}>{p.name}</Text>
+                {p.count ? (
+                  <Text style={[styles.meta, { color: colors.muted }]}>{p.count}</Text>
+                ) : null}
+              </View>
+            ))}
+
+            {peoplePages > 1 && (
+              <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                <TouchableOpacity
+                  style={[styles.pnBtn, { borderColor: colors.border }]}
+                  disabled={peoplePage <= 1}
+                  onPress={() =>
+                    loadPeople(mode as "authors" | "readers", {
+                      page: peoplePage - 1,
+                      letter: peopleLetter,
+                      q: peopleQuery,
+                    })
+                  }
+                >
+                  <Text
+                    style={[
+                      styles.tagText,
+                      { color: peoplePage <= 1 ? colors.muted : colors.text },
+                    ]}
+                  >
+                    Назад
+                  </Text>
+                </TouchableOpacity>
+                <Text style={[styles.meta, { color: colors.muted }]}>
+                  {peoplePage} / {peoplePages}
+                </Text>
+                <TouchableOpacity
+                  style={[styles.pnBtn, { borderColor: colors.border }]}
+                  disabled={peoplePage >= peoplePages}
+                  onPress={() =>
+                    loadPeople(mode as "authors" | "readers", {
+                      page: peoplePage + 1,
+                      letter: peopleLetter,
+                      q: peopleQuery,
+                    })
+                  }
+                >
+                  <Text
+                    style={[
+                      styles.tagText,
+                      { color: peoplePage >= peoplePages ? colors.muted : colors.text },
+                    ]}
+                  >
+                    Вперёд
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -708,5 +927,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 12,
     borderRadius: 12,
+  },
+  letterChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  pnBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
   },
 });

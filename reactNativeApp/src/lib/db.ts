@@ -12,6 +12,8 @@ export type HistoryRow = {
   trackIndex: number;
   position: number;
   duration: number;
+  totalPosition: number;
+  totalDuration: number;
   updatedAt: number;
 };
 
@@ -32,17 +34,30 @@ export const setupDatabase = async () => {
       trackIndex INTEGER DEFAULT 0,
       position REAL DEFAULT 0,
       duration REAL DEFAULT 0,
+      totalPosition REAL DEFAULT 0,
+      totalDuration REAL DEFAULT 0,
       updatedAt INTEGER
     );`
   );
+  // add new columns for totals if they are missing (ignore errors if already exist)
+  try {
+    await db.execAsync(
+      "ALTER TABLE history ADD COLUMN totalPosition REAL DEFAULT 0;"
+    );
+  } catch (_) {}
+  try {
+    await db.execAsync(
+      "ALTER TABLE history ADD COLUMN totalDuration REAL DEFAULT 0;"
+    );
+  } catch (_) {}
 };
 
 export const upsertHistory = async (row: Omit<HistoryRow, "id" | "updatedAt">) => {
   const db = await dbPromise;
   const now = Date.now();
   await db.runAsync(
-    `INSERT INTO history (bookId, title, authors, readers, cover, bookUrl, audioUrl, trackIndex, position, duration, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO history (bookId, title, authors, readers, cover, bookUrl, audioUrl, trackIndex, position, duration, totalPosition, totalDuration, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(bookId) DO UPDATE SET
       title=excluded.title,
       authors=excluded.authors,
@@ -53,6 +68,8 @@ export const upsertHistory = async (row: Omit<HistoryRow, "id" | "updatedAt">) =
       trackIndex=excluded.trackIndex,
       position=excluded.position,
       duration=excluded.duration,
+      totalPosition=excluded.totalPosition,
+      totalDuration=excluded.totalDuration,
       updatedAt=excluded.updatedAt`,
     [
       row.bookId,
@@ -65,6 +82,8 @@ export const upsertHistory = async (row: Omit<HistoryRow, "id" | "updatedAt">) =
       row.trackIndex,
       row.position,
       row.duration,
+      row.totalPosition,
+      row.totalDuration,
       now,
     ]
   );
